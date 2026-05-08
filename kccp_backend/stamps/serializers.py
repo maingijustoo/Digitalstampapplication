@@ -3,7 +3,7 @@ Serializers for the KCCP Digital Stamp API.
 """
 
 from rest_framework import serializers
-from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog
+from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog, Business, FraudReport, ScamAlert
 
 
 class StampTypeSerializer(serializers.ModelSerializer):
@@ -73,9 +73,12 @@ class StampApplicationCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = StampApplication
         fields = [
+            'id',                  # ← add this
+            'reference_number',    # ← add this
             'applicant', 'stamp_type', 'purpose', 'notes', 'priority',
             'document', 'fee_amount',
         ]
+        read_only_fields = ['id', 'reference_number']
 
     def create(self, validated_data):
         application = super().create(validated_data)
@@ -107,6 +110,48 @@ class IssueStampSerializer(serializers.Serializer):
     issued_by = serializers.CharField(max_length=255)
     valid_from = serializers.DateField()
     valid_until = serializers.DateField(required=False, allow_null=True)
+
+
+class BusinessSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Business
+        fields = '__all__'
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class BusinessPublicSerializer(serializers.ModelSerializer):
+    """Minimal public-facing serializer — no sensitive internal fields."""
+    class Meta:
+        model = Business
+        fields = [
+            'id', 'name', 'handle', 'website', 'category',
+            'county', 'badge', 'verified_year', 'description',
+            'year_established', 'has_physical_address',
+        ]
+
+
+class FraudReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FraudReport
+        fields = '__all__'
+        read_only_fields = ['created_at', 'updated_at', 'status']
+
+
+class FraudReportPublicSerializer(serializers.ModelSerializer):
+    """Anonymised view for the public feed — no reporter email."""
+    type = serializers.CharField(source='report_type')
+
+    class Meta:
+        model = FraudReport
+        fields = ['id', 'business', 'type', 'severity', 'status', 'location', 'created_at']
+
+
+class ScamAlertSerializer(serializers.ModelSerializer):
+    type = serializers.CharField(source='alert_type')
+
+    class Meta:
+        model = ScamAlert
+        fields = ['id', 'title', 'type', 'description', 'location', 'date', 'is_active']
 
 
 class DashboardSerializer(serializers.Serializer):

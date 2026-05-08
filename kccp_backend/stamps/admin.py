@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog
+from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog, Business, FraudReport, ScamAlert
 
 
 @admin.register(StampType)
@@ -47,3 +47,23 @@ class AuditLogAdmin(admin.ModelAdmin):
     list_display = ['application', 'action', 'performed_by', 'old_value', 'new_value', 'timestamp']
     list_filter = ['action']
     readonly_fields = ['timestamp']
+
+
+@admin.register(Business)
+class BusinessAdmin(admin.ModelAdmin):
+    list_display = ['name', 'handle', 'badge', 'category', 'county', 'verified_year', 'is_active']
+    list_filter  = ['badge', 'category', 'is_active']
+    search_fields = ['name', 'handle', 'reg_number']
+
+
+@admin.register(FraudReport)
+class FraudReportAdmin(admin.ModelAdmin):
+    list_display = ['business', 'report_type', 'severity', 'status', 'is_public', 'created_at']
+    list_filter  = ['severity', 'status', 'report_type', 'is_public']
+    search_fields = ['business', 'description']
+
+
+@admin.register(ScamAlert)
+class ScamAlertAdmin(admin.ModelAdmin):
+    list_display = ['title', 'alert_type', 'location', 'date', 'is_active']
+    list_filter  = ['alert_type', 'is_active']

@@ -13,7 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog
+from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog, Business, FraudReport, ScamAlert
 from .serializers import (
     StampTypeSerializer,
     ApplicantSerializer,
@@ -26,6 +26,11 @@ from .serializers import (
     PaymentSerializer,
     IssueStampSerializer,
     DashboardSerializer,
+    BusinessSerializer,
+    BusinessPublicSerializer,
+    FraudReportSerializer,
+    FraudReportPublicSerializer,
+    ScamAlertSerializer,
 )
 
 
@@ -391,7 +396,99 @@ class StampRecordViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = StampRecordSerializer
 
 
+# ─── Businesses ───────────────────────────────────────────────────────────────
+
+class BusinessViewSet(viewsets.ModelViewSet):
+    """
+    Public search + CRUD for businesses.
+
+    GET  /api/businesses/                      → list (public, minimal fields)
+    GET  /api/businesses/?search=name          → search by name or handle
+    GET  /api/businesses/?badge=verified       → filter by badge
+    POST /api/businesses/                      → create (internal use)
+    GET  /api/businesses/{id}/                 → detail
+    GET  /api/businesses/verify/?q=handle      → verify a specific business by handle/name
+    """
+    queryset = Business.objects.filter(is_active=True)
+
+    def get_serializer_class(self):
+        # Full serializer for write operations; public for reads
+        if self.request.method in ('POST', 'PUT', 'PATCH'):
+            return BusinessSerializer
+        return BusinessPublicSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search') or self.request.query_params.get('q')
+        badge  = self.request.query_params.get('badge')
+
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(handle__icontains=search) |
+                Q(website__icontains=search)
+            )
+        if badge:
+            qs = qs.filter(badge=badge)
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def verify(self, request):
+        """
+        GET /api/businesses/verify/?q=@handle
+        Returns the badge status for a specific business.
+        Used by the search bar on Home and VerifyBusiness pages.
+        """
+        q = request.query_params.get('q', '').strip()
+        if not q:
+            return Response({'error': 'Query parameter ?q= is required.'}, status=400)
+
+        qs = Business.objects.filter(
+            Q(name__icontains=q) | Q(handle__icontains=q) | Q(website__icontains=q)
+        )
+        serializer = BusinessPublicSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+# ─── Fraud Reports ─────────────────────────────────────────────────────────────
+
+class FraudReportViewSet(viewsets.ModelViewSet):
+    """
+    GET  /api/fraud-reports/        → public anonymised feed
+    POST /api/fraud-reports/        → submit a new report (Report Fraud page)
+    GET  /api/fraud-reports/{id}/   → detail (admin only in production)
+    """
+    queryset = FraudReport.objects.filter(is_public=True)
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return FraudReportSerializer   # accepts full fields on create
+        return FraudReportPublicSerializer  # anonymised on reads
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        severity = self.request.query_params.get('severity')
+        status   = self.request.query_params.get('status')
+        if severity:
+            qs = qs.filter(severity=severity)
+        if status:
+            qs = qs.filter(status=status)
+        return qs
+
+
+# ─── Scam Alerts ───────────────────────────────────────────────────────────────
+
+class ScamAlertViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET  /api/scam-alerts/          → list active alerts
+    GET  /api/scam-alerts/{id}/     → detail
+    """
+    queryset = ScamAlert.objects.filter(is_active=True)
+    serializer_class = ScamAlertSerializer
+
+
 # ─── Dashboard / Summary ──────────────────────────────────────────────────────
+
 
 class DashboardView(APIView):
     """
@@ -411,6 +508,10 @@ class DashboardView(APIView):
             'total': apps.count(),
             **counts,
             'fee_collected': fee_collected,
+            # bonus stats for the home page
+            'verified_businesses': Business.objects.filter(badge='verified').count(),
+            'fraud_reports':       FraudReport.objects.count(),
+            'active_alerts':       ScamAlert.objects.filter(is_active=True).count(),
         }
         serializer = DashboardSerializer(data)
         return Response(serializer.data)

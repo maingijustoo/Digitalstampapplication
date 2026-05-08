@@ -267,3 +267,84 @@ export const stampRecordApi = {
   list: () => get<PaginatedResponse<StampRecord>>('/stamps/'),
   get: (id: number) => get<StampRecord>(`/stamps/${id}/`),
 };
+
+// ─── Businesses ───────────────────────────────────────────────────────────────
+
+export interface Business {
+  id: number;
+  name: string;
+  handle: string;
+  website: string;
+  category: string;
+  county: string;
+  description: string;
+  badge: 'verified' | 'pending' | 'at-risk' | 'flagged' | 'unverified';
+  verified_year: number | null;
+  year_established: number | null;
+  has_physical_address: boolean;
+}
+
+export const businessApi = {
+  list: (params: { badge?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.badge)  qs.set('badge',  params.badge);
+    if (params.search) qs.set('search', params.search);
+    const q = qs.toString();
+    return get<PaginatedResponse<Business>>(`/businesses/${q ? `?${q}` : ''}`);
+  },
+  get:    (id: number) => get<Business>(`/businesses/${id}/`),
+  verify: (q: string)  => get<Business[]>(`/businesses/verify/?q=${encodeURIComponent(q)}`),
+};
+
+// ─── Fraud Reports ────────────────────────────────────────────────────────────
+
+export interface FraudReport {
+  id: number;
+  business: string;
+  type: string;
+  severity: 'low' | 'medium' | 'high';
+  status: 'pending' | 'investigating' | 'resolved';
+  description: string;
+  amount_lost: string | null;
+  location: string;
+  evidence_url: string;
+  reporter_email: string;
+  created_at: string;
+}
+
+export const fraudReportApi = {
+  list: (params: { severity?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.severity) qs.set('severity', params.severity);
+    if (params.status)   qs.set('status',   params.status);
+    const q = qs.toString();
+    return get<PaginatedResponse<FraudReport>>(`/fraud-reports/${q ? `?${q}` : ''}`);
+  },
+  submit: (data: {
+    business: string;
+    report_type: string;
+    severity: string;
+    description: string;
+    amount_lost?: number;
+    location: string;
+    evidence_url?: string;
+    reporter_email?: string;
+  }) => post<FraudReport>('/fraud-reports/', { ...data, is_public: true }),
+};
+
+// ─── Scam Alerts ──────────────────────────────────────────────────────────────
+
+export interface ScamAlert {
+  id: number;
+  title: string;
+  type: string;
+  description: string;
+  location: string;
+  date: string;
+  is_active: boolean;
+}
+
+export const scamAlertApi = {
+  list: () => get<PaginatedResponse<ScamAlert>>('/scam-alerts/'),
+  get:  (id: number) => get<ScamAlert>(`/scam-alerts/${id}/`),
+};
