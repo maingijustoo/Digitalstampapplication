@@ -1,0 +1,10 @@
+kccp_backend/venv/
+kccp_backend/__pycache__/
+kccp_backend/db.sqlite3
+kccp_backend/*.pyc
+kccp_backend/media/
+
+# Node
+node_modules/
+dist/
+.env
