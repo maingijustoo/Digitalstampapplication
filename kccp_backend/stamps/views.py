@@ -12,8 +12,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog, Business, FraudReport, ScamAlert
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework_simplejwt.views import TokenObtainPairView
+from django.contrib.auth.models import User
+from .models import StampType, Applicant, StampApplication, StampRecord, AuditLog, Business, FraudReport, ScamAlert, BusinessProfile, ProfileFraudReport, BusinessNotification
 from .serializers import (
     StampTypeSerializer,
     ApplicantSerializer,
@@ -31,6 +33,12 @@ from .serializers import (
     FraudReportSerializer,
     FraudReportPublicSerializer,
     ScamAlertSerializer,
+    BusinessProfileSerializer,
+    BusinessProfilePublicSerializer,
+    ProfileFraudReportSerializer,
+    ProfileFraudReportPublicSerializer,
+    BusinessNotificationSerializer,
+    PortalDashboardSerializer,
 )
 
 
@@ -208,7 +216,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: START REVIEW ───────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):
         """Button: Start Review — submitted → under_review."""
         application = self.get_object()
@@ -228,7 +236,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: APPROVE ────────────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def approve(self, request, pk=None):
         """Button: Approve — under_review → approved."""
         application = self.get_object()
@@ -248,7 +256,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: REJECT ─────────────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def reject(self, request, pk=None):
         """Button: Reject — under_review → rejected."""
         application = self.get_object()
@@ -268,7 +276,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: CANCEL ─────────────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def cancel(self, request, pk=None):
         """Button: Cancel — any non-final status → cancelled."""
         application = self.get_object()
@@ -288,7 +296,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: MARK PAID ──────────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def record_payment(self, request, pk=None):
         """
         Button: Mark as Paid.
@@ -313,7 +321,7 @@ class StampApplicationViewSet(viewsets.ModelViewSet):
 
     # ── Button: ISSUE STAMP ────────────────────────────────────────────────
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def issue_stamp(self, request, pk=None):
         """
         Button: Issue Stamp — approved + fee_paid → issued.
@@ -515,3 +523,231 @@ class DashboardView(APIView):
         }
         serializer = DashboardSerializer(data)
         return Response(serializer.data)
+
+class DirectorySearchView(APIView):
+    """
+    GET /api/directory/search/?q=<handle>
+    Public. Returns matching BusinessProfile(s) with trust score and stamp status.
+    """
+
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        if not q:
+            return Response({'error': 'Query parameter ?q= is required.'}, status=400)
+
+        profiles = BusinessProfile.objects.filter(
+            Q(business_name__icontains=q) |
+            Q(business_handle__icontains=q)
+        )
+        serializer = BusinessProfilePublicSerializer(profiles, many=True)
+        return Response(serializer.data)
+
+
+# ─── Public: Submit Fraud Report ──────────────────────────────────────────────
+
+class SubmitReportView(APIView):
+    """
+    POST /api/reports/
+    Public. Consumer submits a fraud report against a BusinessProfile.
+    Severity is auto-calculated in ProfileFraudReport.save().
+    """
+
+    def post(self, request):
+        serializer = ProfileFraudReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        report = serializer.save()
+        # Notify the business owner
+        BusinessNotification.objects.create(
+            business=report.business,
+            title='New Fraud Report Filed',
+            message=f'A new {report.severity_category}-severity report has been filed against your business.',
+            type='new_report',
+        )
+        return Response(
+            ProfileFraudReportSerializer(report).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ─── Public: Anonymised Report Feed ──────────────────────────────────────────
+
+class PublicReportFeedView(APIView):
+    """
+    GET /api/reports/public/
+    Public. Returns latest anonymised ProfileFraudReports for the homepage.
+    """
+
+    def get(self, request):
+        reports = ProfileFraudReport.objects.all()[:20]
+        serializer = ProfileFraudReportPublicSerializer(reports, many=True)
+        return Response(serializer.data)
+
+
+# ─── Portal: Dashboard (JWT Required) ────────────────────────────────────────
+
+class PortalDashboardView(APIView):
+    """
+    GET /api/portal/dashboard/
+    Returns the logged-in business's trust score, report counts, stamp status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = request.user.business_profile
+        except BusinessProfile.DoesNotExist:
+            return Response({'error': 'No business profile found for this user.'}, status=404)
+
+        reports = profile.fraud_reports.all()
+        data = {
+            'business_name':       profile.business_name,
+            'business_handle':     profile.business_handle,
+            'is_verified':         profile.is_verified,
+            'badge_status':        profile.badge_status,
+            'certificate_id':      profile.certificate_id,
+            'trust_score':         profile.current_trust_score,
+            'open_reports':        reports.filter(status__in=['open', 'investigating']).count(),
+            'resolved_reports':    reports.filter(status='resolved').count(),
+            'total_reports':       reports.count(),
+            'unread_notifications': profile.notifications.filter(is_read=False).count(),
+        }
+        serializer = PortalDashboardSerializer(data)
+        return Response(serializer.data)
+
+
+# ─── Portal: Notifications (JWT Required) ────────────────────────────────────
+
+class PortalNotificationsView(APIView):
+    """
+    GET /api/portal/notifications/
+    Returns unread BusinessNotification objects for the logged-in business.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = request.user.business_profile
+        except BusinessProfile.DoesNotExist:
+            return Response({'error': 'No business profile found for this user.'}, status=404)
+
+        notifications = profile.notifications.filter(is_read=False)
+        serializer = BusinessNotificationSerializer(notifications, many=True)
+        return Response(serializer.data)
+
+
+# ─── Portal: My Reports (JWT Required) ───────────────────────────────────────
+
+class PortalMyReportsView(APIView):
+    """
+    GET /api/portal/my-reports/
+    Returns ProfileFraudReport objects filed against the logged-in business.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = request.user.business_profile
+        except BusinessProfile.DoesNotExist:
+            return Response({'error': 'No business profile found for this user.'}, status=404)
+
+        reports = profile.fraud_reports.all()
+        serializer = ProfileFraudReportSerializer(reports, many=True)
+        return Response(serializer.data)
+
+
+# ─── Admin: All Reports (IsAdminUser Required) ────────────────────────────────
+
+class AdminReportsView(APIView):
+    """
+    GET  /api/admin/reports/          → all reports, supports ?status= and ?severity=
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        reports = ProfileFraudReport.objects.select_related('business').all()
+
+        status_filter   = request.query_params.get('status')
+        severity_filter = request.query_params.get('severity')
+
+        if status_filter:
+            reports = reports.filter(status=status_filter)
+        if severity_filter:
+            reports = reports.filter(severity_category=severity_filter)
+
+        serializer = ProfileFraudReportSerializer(reports, many=True)
+        return Response(serializer.data)
+
+
+class AdminReportDetailView(APIView):
+    """
+    DELETE /api/admin/reports/<id>/
+    Hard-deletes a spam/false report and recalculates the business trust score.
+    (Trust score is a live @property so no extra step needed — it recalculates on next fetch.)
+    """
+    permission_classes = [IsAdminUser]
+
+    def delete(self, request, pk):
+        try:
+            report = ProfileFraudReport.objects.get(pk=pk)
+        except ProfileFraudReport.DoesNotExist:
+            return Response({'error': 'Report not found.'}, status=404)
+
+        report.delete()
+        # Trust score is a @property — recalculates automatically on next request.
+        return Response({'success': True, 'deleted_id': pk}, status=status.HTTP_200_OK)
+
+
+# ─── Admin: Flag Business (IsAdminUser Required) ──────────────────────────────
+
+class AdminFlagBusinessView(APIView):
+    """
+    POST /api/admin/businesses/<id>/flag/
+    Body: { "reason": "Multiple severe fraud reports" }
+    Sets badge_status = 'flagged', is_verified = False,
+    and creates a BusinessNotification to inform the owner.
+    """
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            profile = BusinessProfile.objects.get(pk=pk)
+        except BusinessProfile.DoesNotExist:
+            return Response({'error': 'Business profile not found.'}, status=404)
+
+        reason = request.data.get('reason', 'Flagged by KCCP administrator.')
+
+        profile.badge_status = 'flagged'
+        profile.is_verified  = False
+        profile.save(update_fields=['badge_status', 'is_verified', 'updated_at'])
+
+        BusinessNotification.objects.create(
+            business=profile,
+            title='Your Business Has Been Flagged',
+            message=f'KCCP has flagged your business account. Reason: {reason}',
+            type='system',
+        )
+
+        return Response({
+            'success':      True,
+            'business_id':  pk,
+            'badge_status': profile.badge_status,
+            'trust_score':  profile.current_trust_score,
+        })
+
+
+# ─── Admin: Approve / Issue Stamp — secure existing actions ──────────────────
+# NOTE: The existing StampApplicationViewSet.approve() and .issue_stamp() actions
+# are modified below to require IsAdminUser. Add permission_classes directly
+# on those @action methods in StampApplicationViewSet (shown as a targeted patch).
+#
+# In StampApplicationViewSet, change:
+#
+#   @action(detail=True, methods=['post'])
+#   def approve(self, request, pk=None):
+#
+# to:
+#
+#   @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+#   def approve(self, request, pk=None):
+#
+# Apply the same to: reject(), issue_stamp()

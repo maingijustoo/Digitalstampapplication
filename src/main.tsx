@@ -10,6 +10,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router";
 
+
 // Global styles
 import "./styles/index.css";
 import "./styles/tailwind.css";
@@ -25,7 +26,8 @@ import { VerifyBusiness } from "./frontend_api/pages/VerifyBusiness";
 import { ReportFraud }    from "./frontend_api/pages/ReportFraud";
 import { ScamAlerts }     from "./frontend_api/pages/ScamAlerts";
 import { BusinessPortal } from "./frontend_api/pages/BusinessPortal";
-
+import { AdminDashboard } from "./frontend_api/pages/AdminDashboard";
+// ADD this line alongside the other page imports
 // Pages that don't need backend yet (keep originals)
 import { About }          from "./app/pages/About";
 import { NotFound }       from "./app/pages/NotFound";
@@ -39,8 +41,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/apply-stamp"     element={<ApplyStamp />} />
           <Route path="/verify"          element={<VerifyBusiness />} />
           <Route path="/report-fraud"    element={<ReportFraud />} />
-          <Route path="/scam-alerts"     element={<ScamAlerts />} />
+          <Route path="/scam-alerts"     element={<ScamAlerts />} />s
           <Route path="/business-portal" element={<BusinessPortal />} />
+          <Route path="/admin-dashboard"  element={<AdminDashboard />} />
           <Route path="/about"           element={<About />} />
           <Route path="*"                element={<NotFound />} />
         </Route>
