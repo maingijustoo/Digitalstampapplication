@@ -5,6 +5,8 @@ Digital Stamp Application
 
 from datetime import timedelta
 from pathlib import Path
+from dotenv import load_dotenv
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -123,3 +125,15 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5173',
 ]
 CORS_ALLOW_ALL_ORIGINS = True  # Set False in production and use CORS_ALLOWED_ORIGINS
+
+
+load_dotenv(BASE_DIR / '.env')
+
+# --- Email (Gmail SMTP) ---
+EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST          = 'smtp.gmail.com'
+EMAIL_PORT          = 587
+EMAIL_USE_TLS       = True
+EMAIL_HOST_USER     = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = f'KCCP Digital Stamp <{os.getenv("EMAIL_HOST_USER", "")}>'

@@ -41,7 +41,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/apply-stamp"     element={<ApplyStamp />} />
           <Route path="/verify"          element={<VerifyBusiness />} />
           <Route path="/report-fraud"    element={<ReportFraud />} />
-          <Route path="/scam-alerts"     element={<ScamAlerts />} />s
+          <Route path="/scam-alerts"     element={<ScamAlerts />} />
           <Route path="/business-portal" element={<BusinessPortal />} />
           <Route path="/admin-dashboard"  element={<AdminDashboard />} />
           <Route path="/about"           element={<About />} />

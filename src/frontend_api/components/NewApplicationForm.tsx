@@ -163,7 +163,7 @@ export function NewApplicationForm({ onSuccess, onCancel }: Props) {
                       value={(newApplicant as any)[key]}
                       onChange={e =>
                         setNewApplicant(d => ({ ...d, [key]: e.target.value }))
-                      }
+                      } 
                     />
                   </div>
                 ))}

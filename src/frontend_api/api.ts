@@ -517,10 +517,140 @@ export const portalApi = {
   getDashboard:     () => authGet<PortalDashboard>('/portal/dashboard/'),
   getNotifications: () => authGet<BusinessNotification[]>('/portal/notifications/'),
   getMyReports:     () => authGet<ProfileFraudReport[]>('/portal/my-reports/'),
+
+  changePassword: (current_password: string, new_password: string) =>
+  authPost<{ success: boolean; message: string }>('/portal/change-password/', {
+    current_password,
+    new_password,
+  }),
 };
+
+
+async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+  });
+  if (res.status === 204) return undefined as T;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? data?.detail ?? `API error ${res.status}`);
+  return data;
+}
+
+const aGet  = <T>(p: string)              => req<T>(p);
+const aPost = <T>(p: string, b?: unknown) => req<T>(p, { method: 'POST',  body: JSON.stringify(b ?? {}) });
+const aDel  = <T>(p: string)              => req<T>(p, { method: 'DELETE' });
+
+// ── Types used by AdminDashboard ──────────────────────────────────────────────
+
+export interface ProfileFraudReport {
+  id: number;
+  business: number;
+  report_type: string;
+  severity_category: 'low' | 'medium' | 'high';
+  severity_score: number;
+  status: string;
+  location: string;
+  is_anonymous: boolean;
+  created_at: string;
+}
+
+
+// ── adminApi — all admin dashboard API calls ──────────────────────────────────
+
+export const adminApi = {
+
+  // ── Applications — uses admin_views.py (new hyphen URLs) ─────────────────
+  // These are correct and clean in admin_views.py
+
+  getApplicationDetail: (id: number) =>
+    authGet<ApplicationDetail>(`/admin/applications/${id}/`),
+
+  getAuditLog: (id: number) =>
+    authGet<AuditLog[]>(`/admin/applications/${id}/audit-log/`),
+
+  startReview: (id: number) =>
+    authPost<ApplicationDetail>(`/admin/applications/${id}/start-review/`, {
+      performed_by: 'admin',
+    }),
+
+  approveApplication: (id: number, performedBy = 'admin', decisionNotes = '') =>
+    authPost<ApplicationDetail>(`/admin/applications/${id}/approve/`, {
+      performed_by: performedBy,
+      decision_notes: decisionNotes,
+    }),
+
+  recordPayment: (id: number, paymentReference: string) =>
+    authPost<ApplicationDetail>(`/admin/applications/${id}/record-payment/`, {
+      payment_reference: paymentReference,
+      performed_by: 'admin',
+    }),
+
+  // Uses AdminIssueStampToProfileView in views.py — full flow with OTP + email
+  // Both URL versions are registered in urls.py so either works
+  issueStamp: (id: number, data: {
+    issued_by: string;
+    valid_from: string;
+    valid_until?: string;
+  }) => authPost(`/admin/applications/${id}/issue_stamp/`, data),
+
+  // ── Reports — uses views.py (ProfileFraudReport — correct model) ──────────
+
+  getAllReports: (params: { status?: string; severity?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status)   qs.set('status',   params.status);
+    if (params.severity) qs.set('severity', params.severity);
+    const q = qs.toString();
+    return authGet<ProfileFraudReport[]>(`/admin/reports/${q ? `?${q}` : ''}`);
+  },
+
+  resolveReport: (id: number) =>
+    authPost<ProfileFraudReport>(`/admin/reports/${id}/resolve/`),
+
+  deleteReport: (id: number) =>
+    authDel<{ success: boolean; deleted_id: number }>(`/admin/reports/${id}/`),
+
+  // ── Businesses — uses views.py (BusinessProfile — correct model) ──────────
+  // admin_views.py flag/revoke operates on old Business model — wrong
+
+  flagBusiness: (id: number, reason: string) =>
+    authPost<{ success: boolean; business_id: number; badge_status: string; trust_score: number }>(
+      `/admin/businesses/${id}/flag/`, { reason }
+    ),
+
+  revokeStamp: (id: number, reason: string) =>
+    authPost<{ success: boolean; business_id: number; is_verified: boolean; badge_status: string }>(
+      `/admin/businesses/${id}/revoke_stamp/`, { reason }
+    ),
+
+  getBusinessProfiles: (search?: string) => {
+  const q = search ? `?search=${encodeURIComponent(search)}` : '';
+  return authGet<{ results: BusinessProfile[]; count: number }>(
+    `/admin/business-profiles/${q}`
+  );
+   },
+
+  // ── Scam Alerts — uses admin_views.py ────────────────────────────────────
+
+  createScamAlert: (data: {
+    title: string;
+    alert_type: string;
+    description: string;
+    location: string;
+    date: string;
+  }) => authPost<ScamAlert>('/admin/scam-alerts/', data),
+
+  deleteScamAlert: (id: number) =>
+    authDel<void>(`/admin/scam-alerts/${id}/`),
+};
+
 
 // ─── Admin API (JWT + IsAdminUser Required) ───────────────────────────────────
 
+
+
+/**
+ * 
 export const adminApi = {
   getAllReports: (params: { status?: string; severity?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -533,9 +663,17 @@ export const adminApi = {
   deleteReport: (id: number) =>
     authDel<{ success: boolean; deleted_id: number }>(`/admin/reports/${id}/`),
 
+  resolveReport: (id: number) =>
+    authPost<ProfileFraudReport>(`/admin/reports/${id}/resolve/`),
+
   flagBusiness: (id: number, reason: string) =>
     authPost<{ success: boolean; business_id: number; badge_status: string; trust_score: number }>(
       `/admin/businesses/${id}/flag/`, { reason }
+    ),
+
+  revokeStamp: (id: number, reason: string) =>
+    authPost<{ success: boolean; business_id: number; is_verified: boolean; badge_status: string }>(
+      `/admin/businesses/${id}/revoke_stamp/`, { reason }
     ),
 
   approveApplication: (id: number, performedBy = 'admin', decisionNotes = '') =>
@@ -544,6 +682,27 @@ export const adminApi = {
       decision_notes: decisionNotes,
     }),
 
-  issueStamp: (id: number, data: { issued_by: string; valid_from: string; valid_until?: string }) =>
-    authPost(`/applications/${id}/issue_stamp/`, data),
+  issueStamp: (id: number, data: {
+    issued_by: string;
+    valid_from: string;
+    valid_until?: string;
+  }) => authPost(`/admin/applications/${id}/issue_stamp/`, data),
+
+  getAuditLog: (id: number) =>
+    authGet<AuditLog[]>(`/applications/${id}/audit_log/`),
+
+  getApplicationDetail: (id: number) =>
+    authGet<ApplicationDetail>(`/applications/${id}/`),
+
+  createScamAlert: (data: {
+    title: string;
+    alert_type: string;
+    description: string;
+    location: string;
+    date: string;
+  }) => authPost<ScamAlert>('/scam-alerts/', data),
 };
+ * adminApi + authApi
+ * Append this entire block to the bottom of src/frontend_api/api.ts
+ * These call /api/admin/* endpoints served by admin_views.py
+ */

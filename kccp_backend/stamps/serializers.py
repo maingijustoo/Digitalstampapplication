@@ -253,3 +253,17 @@ class PortalDashboardSerializer(serializers.Serializer):
     resolved_reports = serializers.IntegerField()
     total_reports   = serializers.IntegerField()
     unread_notifications = serializers.IntegerField()
+
+
+    # ADD TO BOTTOM OF serializers.py
+    # custom token serializer to include is_staff in the payload
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Add is_staff into the JWT payload
+        token['is_staff'] = user.is_staff
+        token['username'] = user.username
+        return token

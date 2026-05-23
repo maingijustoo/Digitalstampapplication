@@ -236,15 +236,30 @@ function ApplicationTracker() {
 // Sub-component: Authenticated Business Portal (JWT)
 // ─────────────────────────────────────────────────────────────────────────────
 function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "notifications" | "reports">("dashboard");
-  const [dashboard, setDashboard]             = useState<PortalDashboard | null>(null);
-  const [notifications, setNotifications]     = useState<BusinessNotification[]>([]);
-  const [myReports, setMyReports]             = useState<ProfileFraudReport[]>([]);
-  const [loading, setLoading]                 = useState(false);
-  const [error, setError]                     = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<
+    | "dashboard"
+    | "notifications"
+    | "reports"
+    | "settings"
+  >("dashboard");
+
+  const [dashboard,     setDashboard]     = useState<PortalDashboard | null>(null);
+  const [notifications, setNotifications] = useState<BusinessNotification[]>([]);
+  const [myReports,     setMyReports]     = useState<ProfileFraudReport[]>([]);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+
+  // ── Change password state ─────────────────────────────────────────────────
+  const [currentPassword,  setCurrentPassword]  = useState("");
+  const [newPassword,      setNewPassword]       = useState("");
+  const [confirmPassword,  setConfirmPassword]   = useState("");
+  const [passwordError,    setPasswordError]     = useState<string | null>(null);
+  const [passwordSuccess,  setPasswordSuccess]   = useState(false);
+  const [changingPassword, setChangingPassword]  = useState(false);
 
   const loadTab = async (tab: typeof activeTab) => {
     setActiveTab(tab);
+    if (tab === "settings") return;
     setLoading(true);
     setError(null);
     try {
@@ -265,8 +280,35 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  // Load dashboard on first render
+  // Load dashboard on mount
   useState(() => { loadTab("dashboard"); });
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(false);
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await portalApi.changePassword(currentPassword, newPassword);
+      setPasswordSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      setPasswordError(err.message ?? "Failed to change password.");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   const SEVERITY_COLOR: Record<string, string> = {
     high: "#e74c3c", medium: "#e67e22", low: "#2ecc71",
@@ -281,26 +323,24 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
       <div className="flex gap-1 mb-6 p-1 rounded-xl"
         style={{ background: "#f4f6fb", border: "1px solid #e0e4ed" }}>
         {([
-          { key: "dashboard",     label: "Dashboard",      icon: <BarChart2 className="w-4 h-4" /> },
-          { key: "notifications", label: "Notifications",  icon: <Bell className="w-4 h-4" /> },
-          { key: "reports",       label: "Reports Filed",  icon: <AlertTriangle className="w-4 h-4" /> },
+          { key: "dashboard",     label: "Dashboard",     icon: <BarChart2 className="w-4 h-4" /> },
+          { key: "notifications", label: "Notifications", icon: <Bell className="w-4 h-4" /> },
+          { key: "reports",       label: "Reports",       icon: <AlertTriangle className="w-4 h-4" /> },
+          { key: "settings",      label: "Settings",      icon: <Lock className="w-4 h-4" /> },
         ] as const).map((tab) => (
-          <button key={tab.key}
-            onClick={() => loadTab(tab.key)}
-            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-colors"
+          <button key={tab.key} onClick={() => loadTab(tab.key)}
+            className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-sm font-semibold transition-colors"
             style={{
               background: activeTab === tab.key ? "#fff" : "transparent",
-              color: activeTab === tab.key ? "#1a2f5e" : "#9aa3b5",
-              boxShadow: activeTab === tab.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+              color:      activeTab === tab.key ? "#1a2f5e" : "#9aa3b5",
+              boxShadow:  activeTab === tab.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
             }}>
             {tab.icon} {tab.label}
           </button>
         ))}
-        <button
-          onClick={onLogout}
+        <button onClick={onLogout}
           className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold"
-          style={{ color: "#e74c3c" }}
-          title="Log out">
+          style={{ color: "#e74c3c" }} title="Log out">
           <LogOut className="w-4 h-4" />
         </button>
       </div>
@@ -316,7 +356,7 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
         <div className="text-center py-12" style={{ color: "#9aa3b5" }}>Loading…</div>
       )}
 
-      {/* ── Dashboard tab ──────────────────────────────────────────────── */}
+      {/* ── Dashboard ──────────────────────────────────────────────────── */}
       {!loading && activeTab === "dashboard" && dashboard && (
         <div className="flex flex-col gap-4">
           {/* Trust score hero */}
@@ -342,8 +382,10 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
               <p style={{ fontWeight: 800, color: "#1a2f5e", fontSize: "1.1rem" }}>
                 {dashboard.business_name}
               </p>
-              <p style={{ color: "#9aa3b5", fontSize: "0.78rem" }}>@{dashboard.business_handle}</p>
-              <div className="flex items-center gap-2 mt-2">
+              <p style={{ color: "#9aa3b5", fontSize: "0.78rem" }}>
+                @{dashboard.business_handle}
+              </p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 {dashboard.is_verified ? (
                   <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                     style={{ background: "#e8f5e9", color: "#2e7d32" }}>
@@ -368,12 +410,28 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
             </div>
           </div>
 
+          {/* First-login notice */}
+          {dashboard.is_verified && (
+            <div className="rounded-xl p-4"
+              style={{ background: "#fff3e0", border: "1px solid #e67e22" }}>
+              <p style={{ fontSize: "0.82rem", color: "#7d4e00", fontWeight: 600 }}>
+                🔐 First time logging in? Go to{" "}
+                <button
+                  onClick={() => loadTab("settings")}
+                  style={{ color: "#1a2f5e", textDecoration: "underline", fontWeight: 700 }}>
+                  Settings
+                </button>{" "}
+                to change your one-time password.
+              </p>
+            </div>
+          )}
+
           {/* Stats row */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Open Reports",     value: dashboard.open_reports,     color: "#e74c3c" },
-              { label: "Resolved",         value: dashboard.resolved_reports, color: "#2ecc71" },
-              { label: "Notifications",    value: dashboard.unread_notifications, color: "#1565c0" },
+              { label: "Open Reports",  value: dashboard.open_reports,         color: "#e74c3c" },
+              { label: "Resolved",      value: dashboard.resolved_reports,     color: "#2ecc71" },
+              { label: "Notifications", value: dashboard.unread_notifications, color: "#1565c0" },
             ].map((stat) => (
               <div key={stat.label} className="rounded-xl p-4 text-center"
                 style={{ background: "#fff", border: "1px solid #e0e4ed" }}>
@@ -387,7 +445,7 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      {/* ── Notifications tab ───────────────────────────────────────────── */}
+      {/* ── Notifications ──────────────────────────────────────────────── */}
       {!loading && activeTab === "notifications" && (
         <div className="flex flex-col gap-3">
           {notifications.length === 0 ? (
@@ -408,7 +466,7 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
                 </div>
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 capitalize"
                   style={{ background: "#f4f6fb", color: "#9aa3b5" }}>
-                  {n.type.replace("_", " ")}
+                  {n.type.replace(/_/g, " ")}
                 </span>
               </div>
               <p style={{ fontSize: "0.68rem", color: "#9aa3b5", marginTop: 6 }}>
@@ -419,7 +477,7 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      {/* ── Reports tab ─────────────────────────────────────────────────── */}
+      {/* ── Reports ────────────────────────────────────────────────────── */}
       {!loading && activeTab === "reports" && (
         <div className="flex flex-col gap-3">
           {myReports.length === 0 ? (
@@ -428,7 +486,10 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
             </div>
           ) : myReports.map((r) => (
             <div key={r.id} className="rounded-xl p-4"
-              style={{ background: "#fff", border: `1px solid ${SEVERITY_COLOR[r.severity_category] ?? "#e0e4ed"}` }}>
+              style={{
+                background: "#fff",
+                border: `1px solid ${SEVERITY_COLOR[r.severity_category] ?? "#e0e4ed"}`,
+              }}>
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <p style={{ fontWeight: 700, color: "#1a2f5e", fontSize: "0.88rem" }}>
@@ -457,10 +518,101 @@ function AuthenticatedPortal({ onLogout }: { onLogout: () => void }) {
               </div>
               <p style={{ fontSize: "0.68rem", color: "#9aa3b5", marginTop: 6 }}>
                 Filed: {new Date(r.created_at).toLocaleDateString("en-KE")}
-                {r.is_anonymous ? " · Anonymous report" : ""}
+                {r.is_anonymous ? " · Anonymous" : ""}
               </p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Settings: Change Password ───────────────────────────────────── */}
+      {activeTab === "settings" && (
+        <div className="max-w-md">
+          <h2 style={{ color: "#1a2f5e", fontWeight: 700, fontSize: "1rem", marginBottom: 16 }}>
+            🔐 Change Password
+          </h2>
+
+          {passwordSuccess && (
+            <div className="rounded-lg p-3 mb-4 text-sm"
+              style={{ background: "#e8f5e9", color: "#2e7d32", border: "1px solid #2ecc71" }}>
+              ✓ Password changed successfully. Use your new password next time you log in.
+            </div>
+          )}
+
+          {passwordError && (
+            <div className="rounded-lg p-3 mb-4 text-sm"
+              style={{ background: "#fce4ec", color: "#c0392b", border: "1px solid #e74c3c" }}>
+              ⚠️ {passwordError}
+            </div>
+          )}
+
+          <form onSubmit={handleChangePassword}
+            className="rounded-xl p-5 flex flex-col gap-4"
+            style={{ background: "#fff", border: "1px solid #e0e4ed" }}>
+
+            <div>
+              <label className="block mb-1"
+                style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1a2f5e" }}>
+                Current Password
+              </label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Your current or one-time password"
+                className="w-full px-3 py-2 rounded-lg outline-none"
+                style={{ border: "1px solid #e0e4ed", fontSize: "0.88rem" }}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block mb-1"
+                style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1a2f5e" }}>
+                New Password
+              </label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className="w-full px-3 py-2 rounded-lg outline-none"
+                style={{ border: "1px solid #e0e4ed", fontSize: "0.88rem" }}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block mb-1"
+                style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1a2f5e" }}>
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Repeat new password"
+                className="w-full px-3 py-2 rounded-lg outline-none"
+                style={{ border: "1px solid #e0e4ed", fontSize: "0.88rem" }}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="w-full py-3 rounded-lg font-bold text-white"
+              style={{
+                background: changingPassword ? "#13254a" : "#1a2f5e",
+                cursor: changingPassword ? "not-allowed" : "pointer",
+              }}>
+              {changingPassword ? "Changing…" : "Change Password"}
+            </button>
+          </form>
+
+          <p className="mt-4" style={{ fontSize: "0.75rem", color: "#9aa3b5" }}>
+            If you've lost access to your account, contact KCCP support.
+          </p>
         </div>
       )}
     </div>
